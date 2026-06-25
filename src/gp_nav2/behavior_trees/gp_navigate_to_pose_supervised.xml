@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+
+    <!--
+      Supervised Nav2 execution tree.
+
+      This BT intentionally does NOT contain big recovery logic.
+
+      Big mission decisions are handled by:
+        gp_mission_supervisor_v2.py
+
+      This BT only:
+        - computes path
+        - follows path
+        - replans at 2 Hz
+        - clears the relevant costmap once if needed
+        - returns failure quickly to the supervisor
+
+      This prevents:
+        clear -> spin -> backup -> wait -> retry same bad route forever
+    -->
+
+    <PipelineSequence name="NavigateWithLightReplanning">
+
+      <!-- Global planning with one context recovery -->
+      <RateController hz="2.0">
+        <RecoveryNode number_of_retries="1" name="ComputePathToPose_WithOneGlobalClear">
+
+          <ComputePathToPose
+            goal="{goal}"
+            path="{path}"
+            planner_id="GridBased"/>
+
+          <ClearEntireCostmap
+            name="ClearGlobalCostmapOnce"
+            service_name="global_costmap/clear_entirely_global_costmap"/>
+
+        </RecoveryNode>
+      </RateController>
+
+      <!-- Local control with one context recovery -->
+      <RecoveryNode number_of_retries="1" name="FollowPath_WithOneLocalClear">
+
+        <FollowPath
+          path="{path}"
+          controller_id="FollowPath"/>
+
+        <ClearEntireCostmap
+          name="ClearLocalCostmapOnce"
+          service_name="local_costmap/clear_entirely_local_costmap"/>
+
+      </RecoveryNode>
+
+    </PipelineSequence>
+
+  </BehaviorTree>
+</root>

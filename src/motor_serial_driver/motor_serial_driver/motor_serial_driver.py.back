@@ -1,0 +1,368 @@
+import re
+from typing import Optional, Tuple
+
+import rclpy
+from geometry_msgs.msg import Twist
+from rclpy.node import Node
+
+try:
+    import serial
+    from serial import SerialException
+except ImportError:  # pragma: no cover
+    serial = None
+    SerialException = Exception
+
+
+MSPD_RE = re.compile(
+    rb'\$MSPD:([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?),'
+    rb'([-+]?\d+(?:\.\d+)?),([-+]?\d+(?:\.\d+)?)#'
+)
+
+
+class MotorSerialDriver(Node):
+    def __init__(self) -> None:
+        super().__init__('motor_serial_driver')
+
+        # Serial / robot parameters
+        self.declare_parameter('port', '/dev/my_motor')
+        self.declare_parameter('baudrate', 115200)
+        self.declare_parameter('wheel_base', 0.12)
+        self.declare_parameter('left_sign', 1.0)
+        self.declare_parameter('right_sign', 1.0)
+
+        # Absolute wheel command safety limit
+        self.declare_parameter('max_speed_mm_s', 300.0)
+
+        # Safer real-robot velocity limits before converting to wheels
+        self.declare_parameter('max_linear_m_s', 0.22)
+        self.declare_parameter('max_angular_rad_s', 0.65)
+
+        # Hardware-aware ramping.
+        # These protect the caster/universal wheels from sudden yaw commands.
+        self.declare_parameter('max_linear_accel_m_s2', 0.30)
+        self.declare_parameter('max_angular_accel_rad_s2', 0.80)
+
+        # Pure spin protection.
+        # If linear velocity is almost zero, angular command is scaled down.
+        self.declare_parameter('pure_spin_v_threshold', 0.03)
+        self.declare_parameter('pure_spin_angular_scale', 0.65)
+
+        # Motor deadband handling.
+        # Very tiny commands often do not move the motors but still confuse Nav2.
+        self.declare_parameter('command_deadband_mm_s', 8.0)
+        self.declare_parameter('min_effective_speed_mm_s', 22.0)
+
+        # Timeout and rates
+        self.declare_parameter('cmd_timeout', 0.5)
+        self.declare_parameter('command_rate', 20.0)
+        self.declare_parameter('feedback_rate', 10.0)
+
+        # Serial recovery
+        self.declare_parameter('reconnect_on_error', True)
+        self.declare_parameter('reconnect_interval', 1.0)
+
+        # Debug
+        self.declare_parameter('debug_commands', False)
+
+        self.port = self.get_parameter('port').value
+        self.baudrate = int(self.get_parameter('baudrate').value)
+        self.wheel_base = float(self.get_parameter('wheel_base').value)
+        self.left_sign = float(self.get_parameter('left_sign').value)
+        self.right_sign = float(self.get_parameter('right_sign').value)
+
+        self.max_speed_mm_s = abs(float(self.get_parameter('max_speed_mm_s').value))
+        self.max_linear_m_s = abs(float(self.get_parameter('max_linear_m_s').value))
+        self.max_angular_rad_s = abs(float(self.get_parameter('max_angular_rad_s').value))
+
+        self.max_linear_accel_m_s2 = abs(float(self.get_parameter('max_linear_accel_m_s2').value))
+        self.max_angular_accel_rad_s2 = abs(float(self.get_parameter('max_angular_accel_rad_s2').value))
+
+        self.pure_spin_v_threshold = abs(float(self.get_parameter('pure_spin_v_threshold').value))
+        self.pure_spin_angular_scale = float(self.get_parameter('pure_spin_angular_scale').value)
+
+        self.command_deadband_mm_s = abs(float(self.get_parameter('command_deadband_mm_s').value))
+        self.min_effective_speed_mm_s = abs(float(self.get_parameter('min_effective_speed_mm_s').value))
+
+        self.cmd_timeout = float(self.get_parameter('cmd_timeout').value)
+        self.command_rate = max(1.0, float(self.get_parameter('command_rate').value))
+        self.feedback_rate = max(1.0, float(self.get_parameter('feedback_rate').value))
+
+        self.reconnect_on_error = bool(self.get_parameter('reconnect_on_error').value)
+        self.reconnect_interval = float(self.get_parameter('reconnect_interval').value)
+        self.debug_commands = bool(self.get_parameter('debug_commands').value)
+
+        if self.wheel_base <= 0.0:
+            self.get_logger().warn('wheel_base must be positive; using 0.12 m')
+            self.wheel_base = 0.12
+
+        self.serial_port = None
+        self.rx_buffer = b''
+
+        now = self.get_clock().now()
+        self.last_cmd_time = now
+        self.last_ramp_time = now
+        self.last_feedback_time = now
+        self.last_reconnect_attempt = now
+
+        self.timed_out = False
+
+        # Target command from /cmd_vel
+        self.target_v = 0.0
+        self.target_w = 0.0
+
+        # Current ramped command actually sent to motor board
+        self.current_v = 0.0
+        self.current_w = 0.0
+
+        self.vel_pub = self.create_publisher(Twist, '/vel_raw', 10)
+        self.cmd_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
+
+        self.timer = self.create_timer(1.0 / self.command_rate, self.timer_callback)
+
+        self.open_serial()
+        self.send_zero()
+
+        self.get_logger().info(
+            'Motor driver ready with ramping: '
+            f'max_v={self.max_linear_m_s:.2f} m/s, '
+            f'max_w={self.max_angular_rad_s:.2f} rad/s, '
+            f'linear_acc={self.max_linear_accel_m_s2:.2f} m/s^2, '
+            f'angular_acc={self.max_angular_accel_rad_s2:.2f} rad/s^2'
+        )
+
+    def open_serial(self) -> None:
+        if serial is None:
+            self.get_logger().error('python3-serial is not available; motor serial port cannot open')
+            return
+
+        try:
+            self.serial_port = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                timeout=0.0,
+                write_timeout=0.1,
+            )
+            try:
+                self.serial_port.reset_input_buffer()
+                self.serial_port.reset_output_buffer()
+            except Exception:
+                pass
+
+            self.rx_buffer = b''
+            self.get_logger().info(f'Opened motor serial port {self.port} at {self.baudrate}')
+        except (OSError, SerialException) as exc:
+            self.serial_port = None
+            self.get_logger().error(f'Failed to open motor serial port {self.port}: {exc}')
+
+    def close_serial(self) -> None:
+        if self.serial_port is not None:
+            try:
+                if self.serial_port.is_open:
+                    self.serial_port.close()
+            except (OSError, SerialException) as exc:
+                self.get_logger().warn(f'Motor serial close failed: {exc}')
+        self.serial_port = None
+
+    def mark_serial_error(self, reason: str) -> None:
+        self.get_logger().warn(reason)
+        if self.reconnect_on_error:
+            self.close_serial()
+
+    def try_reconnect(self) -> None:
+        if not self.reconnect_on_error:
+            return
+
+        if self.serial_port is not None and self.serial_port.is_open:
+            return
+
+        now = self.get_clock().now()
+        elapsed = (now - self.last_reconnect_attempt).nanoseconds / 1e9
+        if elapsed < self.reconnect_interval:
+            return
+
+        self.last_reconnect_attempt = now
+        self.get_logger().warn(f'Trying to reconnect motor serial port {self.port}')
+        self.open_serial()
+        if self.serial_port is not None and self.serial_port.is_open:
+            self.send_zero()
+
+    def cmd_vel_callback(self, msg: Twist) -> None:
+        self.last_cmd_time = self.get_clock().now()
+        self.timed_out = False
+
+        v = self.limit(float(msg.linear.x), -self.max_linear_m_s, self.max_linear_m_s)
+        w = self.limit(float(msg.angular.z), -self.max_angular_rad_s, self.max_angular_rad_s)
+
+        # Caster/universal wheel protection:
+        # pure spin is mechanically bad for this chassis, so reduce spin-in-place commands.
+        if abs(v) < self.pure_spin_v_threshold and abs(w) > 0.0:
+            w *= self.pure_spin_angular_scale
+
+        self.target_v = v
+        self.target_w = w
+
+    def timer_callback(self) -> None:
+        self.try_reconnect()
+
+        now = self.get_clock().now()
+
+        elapsed_cmd = (now - self.last_cmd_time).nanoseconds / 1e9
+        if elapsed_cmd > self.cmd_timeout and not self.timed_out:
+            self.target_v = 0.0
+            self.target_w = 0.0
+            self.timed_out = True
+
+        self.update_ramped_command(now)
+        self.send_current_speed()
+
+        elapsed_feedback = (now - self.last_feedback_time).nanoseconds / 1e9
+        if elapsed_feedback >= (1.0 / self.feedback_rate):
+            self.last_feedback_time = now
+            self.request_feedback()
+
+        self.read_feedback()
+
+    def update_ramped_command(self, now) -> None:
+        dt = (now - self.last_ramp_time).nanoseconds / 1e9
+        self.last_ramp_time = now
+
+        if dt <= 0.0 or dt > 1.0:
+            dt = 1.0 / self.command_rate
+
+        max_dv = self.max_linear_accel_m_s2 * dt
+        max_dw = self.max_angular_accel_rad_s2 * dt
+
+        self.current_v = self.step_toward(self.current_v, self.target_v, max_dv)
+        self.current_w = self.step_toward(self.current_w, self.target_w, max_dw)
+
+    def send_current_speed(self) -> None:
+        left_mps = self.current_v - (self.current_w * self.wheel_base / 2.0)
+        right_mps = self.current_v + (self.current_w * self.wheel_base / 2.0)
+
+        left_mm_s = self.left_sign * left_mps * 1000.0
+        right_mm_s = self.right_sign * right_mps * 1000.0
+
+        m2 = self.prepare_motor_speed(left_mm_s)
+        m4 = self.prepare_motor_speed(right_mm_s)
+
+        if self.debug_commands:
+            self.get_logger().info(
+                f'cmd target(v={self.target_v:.3f}, w={self.target_w:.3f}) '
+                f'ramped(v={self.current_v:.3f}, w={self.current_w:.3f}) '
+                f'M2={m2}, M4={m4}'
+            )
+
+        self.send_speed(m2, m4)
+
+    def prepare_motor_speed(self, speed_mm_s: float) -> int:
+        speed_mm_s = self.limit(speed_mm_s, -self.max_speed_mm_s, self.max_speed_mm_s)
+
+        if abs(speed_mm_s) < self.command_deadband_mm_s:
+            return 0
+
+        # If command is small but intentional, raise it to minimum effective speed.
+        if 0.0 < abs(speed_mm_s) < self.min_effective_speed_mm_s:
+            speed_mm_s = self.min_effective_speed_mm_s if speed_mm_s > 0.0 else -self.min_effective_speed_mm_s
+
+        return int(round(speed_mm_s))
+
+    @staticmethod
+    def limit(value: float, lower: float, upper: float) -> float:
+        return max(lower, min(upper, value))
+
+    @staticmethod
+    def step_toward(current: float, target: float, max_step: float) -> float:
+        if target > current + max_step:
+            return current + max_step
+        if target < current - max_step:
+            return current - max_step
+        return target
+
+    def send_zero(self) -> None:
+        self.current_v = 0.0
+        self.current_w = 0.0
+        self.target_v = 0.0
+        self.target_w = 0.0
+        self.send_command('$spd:0,0,0,0#')
+
+    def send_speed(self, m2: int, m4: int) -> None:
+        self.send_command(f'$spd:0,{m2},0,{m4}#')
+
+    def request_feedback(self) -> None:
+        self.send_command('$upload:0,0,1#')
+
+    def send_command(self, command: str) -> None:
+        if self.serial_port is None or not self.serial_port.is_open:
+            return
+
+        try:
+            self.serial_port.write(command.encode('ascii'))
+        except (OSError, SerialException) as exc:
+            self.mark_serial_error(f'Motor serial write failed: {exc}')
+
+    def read_feedback(self) -> None:
+        if self.serial_port is None or not self.serial_port.is_open:
+            return
+
+        try:
+            available = self.serial_port.in_waiting
+            if available <= 0:
+                return
+            self.rx_buffer += self.serial_port.read(available)
+        except (OSError, SerialException) as exc:
+            self.mark_serial_error(f'Motor serial read failed: {exc}')
+            return
+
+        if len(self.rx_buffer) > 512:
+            self.rx_buffer = self.rx_buffer[-512:]
+
+        while True:
+            parsed = self.extract_mspd()
+            if parsed is None:
+                break
+            self.publish_vel_raw(parsed[1], parsed[3])
+
+    def extract_mspd(self) -> Optional[Tuple[float, float, float, float]]:
+        match = MSPD_RE.search(self.rx_buffer)
+        if match is None:
+            last_start = self.rx_buffer.rfind(b'$')
+            if last_start > 0:
+                self.rx_buffer = self.rx_buffer[last_start:]
+            return None
+
+        self.rx_buffer = self.rx_buffer[match.end():]
+        try:
+            return tuple(float(value) for value in match.groups())
+        except ValueError:
+            return None
+
+    def publish_vel_raw(self, left_feedback_mm_s: float, right_feedback_mm_s: float) -> None:
+        left_mps = (left_feedback_mm_s * self.left_sign) / 1000.0
+        right_mps = (right_feedback_mm_s * self.right_sign) / 1000.0
+
+        msg = Twist()
+        msg.linear.x = (left_mps + right_mps) / 2.0
+        msg.linear.y = 0.0
+        msg.angular.z = (right_mps - left_mps) / self.wheel_base
+        self.vel_pub.publish(msg)
+
+    def shutdown(self) -> None:
+        self.send_zero()
+        self.close_serial()
+
+
+def main(args=None) -> None:
+    rclpy.init(args=args)
+    node = MotorSerialDriver()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.shutdown()
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

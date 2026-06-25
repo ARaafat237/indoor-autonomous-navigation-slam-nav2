@@ -1,0 +1,145 @@
+gp_mission_supervisor:
+  ros__parameters:
+    map_frame: "map"
+    base_frame: "base_footprint"
+
+    mission_goal_topic: "/mission_goal"
+    rviz_goal_topic: "/goal_pose"
+    mission_status_topic: "/mission_status"
+    mission_marker_topic: "/gp_mission_markers"
+    cmd_vel_topic: "/cmd_vel_supervisor"
+    scan_topic: "/scan"
+    odom_topic: "/odometry/filtered"
+    nav_action_name: "/navigate_to_pose"
+    nav_behavior_tree: ""
+
+    goal_timeout_sec: 120.0
+    breadcrumb_timeout_sec: 45.0
+    side_escape_goal_timeout_sec: 20.0
+    return_to_base_timeout_sec: 120.0
+    supervisor_loop_rate: 5.0
+
+    goal_retry_preemption_enabled: true
+    goal_retry_preemption_min_active_sec: 0.45
+    goal_retry_preemption_cooldown_sec: 2.5
+    goal_retry_preemption_clearance: 0.32
+    goal_retry_preemption_front_clearance: 0.28
+    goal_retry_preemption_sector_degrees: 40.0
+    goal_retry_preemption_max_heading_error_degrees: 60.0
+    goal_retry_preemption_required_stable_ticks: 2
+    goal_retry_failure_cooldown_sec: 8.0
+    goal_retry_failure_radius: 0.40
+
+    # Phase 7C: stall watchdog. Fire Phase 5 the moment the robot stops
+    # making real progress, instead of waiting for Nav2 to give up.
+    stall_watchdog_enabled: true
+    stall_watchdog_min_displacement_m: 0.10
+    stall_watchdog_time_window_sec: 6.0
+    stall_watchdog_grace_period_sec: 2.0
+    stall_watchdog_min_goal_distance_m: 0.40
+
+    phase5_live_recovery_enabled: true
+    phase5_log_recovery_scene: true
+    phase5_front_open_clearance: 0.28
+    phase5_side_open_clearance: 0.24
+    phase5_blocked_clearance: 0.20
+    phase5_side_probe_heading_deg: 45.0
+    phase5_goal_side_heading_deg: 18.0
+    phase5_goal_retry_ignores_failure_cooldown: true
+    phase5_max_goal_retries_per_stuck_event: 1
+    phase5_relax_failed_zone_on_open_scan: true
+    phase5_failed_zone_relax_margin: 0.10
+
+    goal_probe_enabled: true
+    goal_probe_forward_speed: 0.08
+    goal_probe_angular_speed: 0.24
+    goal_probe_duration_sec: 1.50
+    goal_probe_zero_cmd_after_sec: 0.10
+    goal_probe_wait_after_sec: 0.15
+    goal_probe_front_clearance: 0.26
+    goal_probe_side_clearance: 0.22
+    goal_probe_hard_stop_clearance: 0.20
+    goal_probe_heading_deg: 22.0
+    goal_probe_straight_heading_deg: 15.0
+    goal_probe_max_goal_heading_deg: 110.0
+    goal_probe_max_attempts_per_stuck_event: 3
+    goal_probe_max_attempts_per_mission: 6
+
+    reverse_escape_enabled: true
+    reverse_speed: -0.08
+    reverse_max_duration: 4.0
+    reverse_target_distance: 0.32
+    reverse_absolute_max_distance: 0.38
+    reverse_publish_rate: 20.0
+    reverse_zero_cmd_before_sec: 0.3
+    reverse_zero_cmd_after_sec: 0.25
+    post_reverse_costmap_wait_sec: 0.30
+
+    rear_check_enabled: true
+    rear_sector_center_degrees: 180.0
+    rear_sector_degrees: 70.0
+    rear_clearance_full_reverse: 0.55
+    rear_clearance_short_reverse: 0.35
+    rear_clearance_hard_stop: 0.24
+    allow_reverse_without_scan: false
+    scan_stale_sec: 1.0
+
+    controller_patience_enabled: true
+    controller_patience_forward_speed: 0.05
+    controller_patience_angular_speed: 0.22
+    controller_patience_duration_sec: 1.4
+    controller_patience_zero_cmd_after_sec: 0.20
+    controller_patience_wait_after_sec: 0.30
+    controller_patience_clearance_required: 0.26
+    controller_patience_hard_stop_clearance: 0.20
+    controller_patience_heading_deg: 18.0
+    controller_patience_max_attempts_per_stuck_event: 1
+    controller_patience_max_attempts_per_mission: 3
+    controller_patience_candidate_order: ["forward", "forward_left", "forward_right"]
+
+    side_escape_enabled: true
+    side_escape_distance: 0.25
+    side_escape_forward_bias: 0.05
+    side_escape_yaw_offset_deg: 15.0
+    side_escape_clearance_required: 0.35
+    side_escape_max_attempts_per_event: 1
+    side_escape_candidate_order: ["left", "right", "back_left", "back_right"]
+    direct_side_escape_enabled: true
+    direct_side_escape_speed: 0.06
+    direct_side_escape_angular_speed: 0.28
+    direct_side_escape_duration_sec: 1.2
+    direct_side_escape_zero_cmd_after_sec: 0.20
+    direct_side_escape_wait_after_sec: 0.30
+    direct_side_escape_clearance_required: 0.26
+    direct_side_escape_hard_stop_clearance: 0.20
+    direct_side_escape_max_attempts_per_event: 1
+    failed_escape_goal_radius: 0.35
+
+    breadcrumb_distance: 0.25
+    max_breadcrumbs: 40
+    min_retreat_distance: 0.45
+    preferred_retreat_distance: 0.70
+    max_retreat_distance: 1.50
+    record_breadcrumbs_during_retreat: false
+
+    failed_zone_radius: 0.35
+    failed_zone_lifetime_sec: 180.0
+    same_failure_distance: 0.35
+
+    max_same_goal_replans_before_reverse: 1
+    max_reverse_escapes_per_stuck_event: 1
+    max_reverse_escapes_per_mission: 3
+    max_goal_retries_after_reverse: 1
+    max_breadcrumb_attempts: 2
+    max_total_recovery_cycles: 12
+
+    current_pose_timeout_sec: 0.10
+    odom_stale_sec: 1.0
+    localization_guard_enabled: true
+    localization_jump_distance: 0.35
+    localization_odom_disagreement: 0.25
+    localization_check_min_dt: 0.20
+    localization_settle_sec: 1.5
+    localization_stable_sample_count: 5
+    marker_publish_period_sec: 1.0
+    publish_debug_markers: false

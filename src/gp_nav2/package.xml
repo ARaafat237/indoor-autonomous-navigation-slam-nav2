@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>gp_nav2</name>
+  <version>0.0.1</version>
+  <description>Custom Nav2 bringup and configuration package for the SLAM/NAV2 graduation project robot.</description>
+
+  <maintainer email="ama@example.com">ama</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Launch system -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <!-- RewrittenYaml and Nav2 launch utilities -->
+  <exec_depend>nav2_common</exec_depend>
+
+  <!-- Core Nav2 lifecycle and localization -->
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+
+  <!-- Planning and control servers -->
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+
+  <!-- Planner/controller plugins used by our configuration -->
+  <exec_depend>nav2_navfn_planner</exec_depend>
+  <exec_depend>dwb_core</exec_depend>
+  <exec_depend>dwb_critics</exec_depend>
+
+  <!-- Costmap layers: StaticLayer, ObstacleLayer, InflationLayer -->
+  <exec_depend>nav2_costmap_2d</exec_depend>
+
+  <!-- Command smoothing -->
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+
+  <!-- Python supervisor node dependencies -->
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>action_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

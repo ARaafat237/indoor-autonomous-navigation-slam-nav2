@@ -1,0 +1,107 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="gp_robot">
+  <!--
+    Frame convention:
+    base_footprint = rear axle midpoint projected to the ground.
+    base_link = same x/y as base_footprint, 0.05 m above ground.
+
+    Real chassis measurements:
+      front overhang from rear axle/base_footprint: +0.19 m
+      rear overhang from rear axle/base_footprint:  -0.06 m
+      width: 0.16 m
+      height: 0.23 m
+  -->
+  <xacro:property name="chassis_front_overhang" value="0.19"/>
+  <xacro:property name="chassis_rear_overhang" value="0.06"/>
+  <xacro:property name="chassis_length" value="${chassis_front_overhang + chassis_rear_overhang}"/>
+  <xacro:property name="chassis_width" value="0.16"/>
+  <xacro:property name="chassis_height" value="0.23"/>
+
+  <xacro:property name="base_link_z" value="0.05"/>
+
+  <!-- Chassis box center relative to base_link. -->
+  <xacro:property name="chassis_center_x" value="${(chassis_front_overhang - chassis_rear_overhang) / 2.0}"/>
+  <xacro:property name="chassis_center_z" value="${chassis_height / 2.0 - base_link_z}"/>
+
+  <material name="chassis_dark">
+    <color rgba="0.15 0.17 0.19 1.0"/>
+  </material>
+  <material name="sensor_black">
+    <color rgba="0.02 0.02 0.02 1.0"/>
+  </material>
+  <material name="imu_blue">
+    <color rgba="0.1 0.28 0.55 1.0"/>
+  </material>
+
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_to_base_link" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0.0 0.0 ${base_link_z}" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="${chassis_center_x} 0 ${chassis_center_z}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+      <material name="chassis_dark"/>
+    </visual>
+    <collision>
+      <origin xyz="${chassis_center_x} 0 ${chassis_center_z}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- LiDAR measurement from base_footprint: x=0.04, y=0.001, z=0.22 from ground.
+       base_link is 0.05 above ground, so base_link -> laser z = 0.17. -->
+  <joint name="base_link_to_laser" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser"/>
+    <origin xyz="0.04 0.001 0.17" rpy="0 0 0"/>
+  </joint>
+
+  <link name="laser">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.03"/>
+      </geometry>
+      <material name="sensor_black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.03"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- IMU measurement from base_footprint: x=0.12, y=0.001, z=0.122 from ground.
+       base_link is 0.05 above ground, so base_link -> imu_link z = 0.072. -->
+  <joint name="base_link_to_imu_link" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0.12 0.001 0.072" rpy="0 0 0"/>
+  </joint>
+
+  <link name="imu_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.035 0.025 0.012"/>
+      </geometry>
+      <material name="imu_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.035 0.025 0.012"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>

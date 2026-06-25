@@ -1,0 +1,421 @@
+amcl:
+  ros__parameters:
+    use_sim_time: False
+
+    # map -> odom -> base_footprint -> base_link -> laser
+    base_frame_id: "base_footprint"
+    odom_frame_id: "odom"
+    global_frame_id: "map"
+
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    scan_topic: /scan
+    tf_broadcast: true
+    transform_tolerance: 2.0
+
+    # Stability tune: trust IMU/EKF rotation more between updates so AMCL
+    # doesn't have to fight wheel-slip rotational noise.
+    alpha1: 0.15
+    alpha2: 0.15
+    alpha3: 0.25
+    alpha4: 0.25
+    alpha5: 0.25
+
+    min_particles: 1000
+    max_particles: 2500
+    # More beams per update = stronger angular constraint, less orientation
+    # wobble in feature-poor regions.
+    max_beams: 120
+
+    laser_model_type: "likelihood_field"
+    laser_likelihood_max_dist: 1.2
+    laser_max_range: 10.0
+    laser_min_range: -1.0
+
+    # Reverted from the tightened values (z_hit 0.85 / z_rand 0.05 /
+    # sigma_hit 0.10) which overshot into kidnap-style pose jumps —
+    # AMCL was relocating the robot ~40-50cm when scans matched an
+    # alternative mode better. Back to the looser baseline that
+    # tolerates ambiguous scans without large jumps.
+    z_hit: 0.7
+    z_short: 0.05
+    z_max: 0.05
+    z_rand: 0.15
+    sigma_hit: 0.18
+    lambda_short: 0.1
+
+    do_beamskip: true
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    save_pose_rate: 0.5
+
+    update_min_d: 0.04
+    update_min_a: 0.10
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: False
+    global_frame: map
+    robot_base_frame: base_footprint
+    odom_topic: /odometry/filtered
+    default_nav_to_pose_bt_xml: "/root/humble_ws/install/gp_nav2/share/gp_nav2/behavior_trees/gp_navigate_to_pose.xml"
+
+    bt_loop_duration: 20
+    default_server_timeout: 20
+    wait_for_service_timeout: 1000
+
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_compute_path_through_poses_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_back_up_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_is_stuck_condition_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_reinitialize_global_localization_service_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_distance_controller_bt_node
+      - nav2_speed_controller_bt_node
+      - nav2_truncate_path_action_bt_node
+      - nav2_goal_updater_node_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_transform_available_condition_bt_node
+      - nav2_time_expired_condition_bt_node
+      - nav2_distance_traveled_condition_bt_node
+      - nav2_single_trigger_bt_node
+      - nav2_is_battery_low_condition_bt_node
+      - nav2_navigate_through_poses_action_bt_node
+      - nav2_navigate_to_pose_action_bt_node
+      - nav2_remove_passed_goals_action_bt_node
+      - nav2_planner_selector_bt_node
+      - nav2_controller_selector_bt_node
+      - nav2_goal_checker_selector_bt_node
+
+
+bt_navigator_navigate_through_poses_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False
+
+
+bt_navigator_navigate_to_pose_rclcpp_node:
+  ros__parameters:
+    use_sim_time: False
+
+
+controller_server:
+  ros__parameters:
+    use_sim_time: False
+
+    controller_frequency: 8.0
+
+    min_x_velocity_threshold: 0.025
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.05
+
+    failure_tolerance: 0.9
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+    odom_topic: /odometry/filtered
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+
+      required_movement_radius: 0.10
+      movement_time_allowance: 9.0
+
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: True
+      xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 1.13
+
+    FollowPath:
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+
+      # Rotation Shim: when heading-to-path error > 45 deg, rotate in place
+      # first, then hand off to DWB. Eliminates the case where the robot
+      # is facing nearly opposite the goal and DWB cannot find a forward
+      # trajectory that scores well.
+      angular_dist_threshold: 0.524
+      forward_sampling_distance: 0.30
+      rotate_to_heading_angular_vel: 0.40
+      max_angular_accel: 0.80
+      simulate_ahead_time: 1.0
+      rotate_to_goal_heading: false
+
+      # DWB params below are read from this same FollowPath namespace
+      # by the primary controller.
+      debug_trajectory_details: False
+
+      min_vel_x: 0.00
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+
+      max_vel_x: 0.30
+      max_speed_xy: 0.30
+      max_vel_theta: 0.40
+
+      min_speed_xy: 0.00
+      min_speed_theta: 0.06
+
+      # Restored to original baseline: 5 s ramp left the robot crawling
+      # below the supervisor stall watchdog in scan-scaled corridors.
+      # RTFA already owns the smoothness of the rotation→forward
+      # transition; chassis-wide accel cap was double-handling that.
+      acc_lim_x: 0.35
+      acc_lim_y: 0.0
+      acc_lim_theta: 0.60
+      decel_lim_x: -0.55
+      decel_lim_y: 0.0
+      decel_lim_theta: -0.90
+
+      vx_samples: 20
+      vy_samples: 1
+      vtheta_samples: 14
+      sim_time: 0.8
+      linear_granularity: 0.06
+      angular_granularity: 0.10
+      transform_tolerance: 2.0
+
+      xy_goal_tolerance: 0.15
+      trans_stopped_velocity: 0.03
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+
+      critics: ["RotateToGoal", "Oscillation", "ObstacleFootprint", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+
+      # Obstacle critics demoted to hints (was 0.08). With tighter inflation
+      # and physical safety owned by the scan-stop layer, DWB should bias
+      # toward path-following (PathDist/GoalDist) rather than rejecting
+      # trajectories that brush inflated cells in tight passages.
+      BaseObstacle.scale: 0.02
+      ObstacleFootprint.scale: 0.02
+
+      PathAlign.scale: 1.2
+      PathAlign.forward_point_distance: 0.40
+      GoalAlign.scale: 0.7
+      GoalAlign.forward_point_distance: 0.40
+      PathDist.scale: 22.0
+      GoalDist.scale: 20.0
+
+      RotateToGoal.scale: 1.6
+      RotateToGoal.slowing_factor: 15.0
+      RotateToGoal.lookahead_time: 1.0
+
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: False
+
+      global_frame: odom
+      robot_base_frame: base_footprint
+      rolling_window: true
+      transform_tolerance: 2.0
+
+      update_frequency: 8.0
+      publish_frequency: 2.0
+
+      # expects these as integers.
+      width: 4
+      height: 4
+      resolution: 0.03
+
+      footprint: "[[0.18, 0.075], [0.18, -0.075], [-0.06, -0.075], [-0.06, 0.075]]"
+      footprint_padding: 0.01
+
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        footprint_clearing_enabled: true
+
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          clearing: True
+          marking: True
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.05
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.05
+          max_obstacle_height: 1.5
+          min_obstacle_height: 0.0
+          inf_is_valid: false
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: True
+
+        # Tight inflation + steep drop-off: DWB gets room to plan in
+        # doorways/pinches. Physical safety is owned by scan-based stop
+        # (20cm) and the RTFA/yaw_stab motion layers, so the costmap is
+        # demoted from "judge" to "preference advisor".
+        inflation_radius: 0.08
+        cost_scaling_factor: 10.0
+
+      always_send_full_costmap: true
+
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: False
+
+      global_frame: map
+      robot_base_frame: base_footprint
+      transform_tolerance: 2.0
+
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      resolution: 0.05
+      track_unknown_space: true
+
+      footprint: "[[0.18, 0.075], [0.18, -0.075], [-0.06, -0.075], [-0.06, 0.075]]"
+      footprint_padding: 0.005
+
+
+      plugins: ["static_layer","obstacle_layer","inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+        
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        footprint_clearing_enabled: true
+        
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          clearing: True
+          marking: True
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.05
+          raytrace_max_range: 3.5
+          raytrace_min_range: 0.05
+          max_obstacle_height: 1.5
+          min_obstacle_height: 0.0
+          inf_is_valid: false        
+        
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: True
+        # Inflation just under robot circumscribed_radius (~0.195m): planner
+        # prefers corridor center when one exists but never blocks doorways
+        # the robot can physically fit through. Steep cost_scaling collapses
+        # the gradient to a thin halo so DWB doesn't see thick cost walls.
+        inflation_radius: 0.18
+        cost_scaling_factor: 8.0
+
+      always_send_full_costmap: true
+
+
+map_server:
+  ros__parameters:
+    use_sim_time: False
+    yaml_filename: "/root/maps/current_nav_map.yaml"
+
+
+map_saver:
+  ros__parameters:
+    use_sim_time: False
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: True
+
+
+planner_server:
+  ros__parameters:
+    use_sim_time: False
+
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.175
+      use_astar: true
+      allow_unknown: true
+
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: False
+
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+
+    spin:
+      plugin: "nav2_behaviors/Spin"
+
+    backup:
+      plugin: "nav2_behaviors/BackUp"
+      backup_dist: 0.06
+      backup_speed: 0.06
+
+    drive_on_heading:
+      plugin: "nav2_behaviors/DriveOnHeading"
+
+    wait:
+      plugin: "nav2_behaviors/Wait"
+
+    global_frame: odom
+    robot_base_frame: base_footprint
+    transform_tolerance: 2.0
+    simulate_ahead_time: 1.0
+
+    max_rotational_vel: 0.60
+    min_rotational_vel: 0.25
+    rotational_acc_lim: 1.0
+
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: False
+
+    smoothing_frequency: 20.0
+    scale_velocities: True
+    feedback: "OPEN_LOOP"
+
+    max_velocity: [0.32, 0.0, 0.70]
+    min_velocity: [-0.06, 0.0, -0.70]
+
+    # Restored to original baseline (was 0.06 / 5 s ramp). RTFA owns
+    # the rotation→forward smoothness; chassis-wide accel cap was
+    # double-handling that and starving the stall watchdog.
+    max_accel: [0.35, 0.0, 0.40]
+    max_decel: [-0.40, 0.0, -1.20]
+
+    odom_topic: /odometry/filtered
+    odom_duration: 0.2
+
+    deadband_velocity: [0.02, 0.0, 0.05]
+    velocity_timeout: 0.5
+
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: False

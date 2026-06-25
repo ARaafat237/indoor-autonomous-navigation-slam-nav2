@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>gp_bringup_v</name>
+  <version>0.0.1</version>
+  <description>Versioned full bringup for the custom 2WD robot using C++ velocity manager before the motor serial driver.</description>
+  <maintainer email="todo@example.com">TODO</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>differential_odom</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>gp_description</exec_depend>
+  <exec_depend>gp_localization</exec_depend>
+  <exec_depend>gp_velocity_manager</exec_depend>
+  <exec_depend>imu_ros2_device</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>motor_serial_driver</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rplidar_ros</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
